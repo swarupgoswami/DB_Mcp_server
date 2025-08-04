@@ -1,0 +1,91 @@
+import {Server} from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import{
+    CallToolRequestSchema,
+    ListToolsRequestSchema,
+    McpError,
+    ErrorCode
+} from '@modelcontextprotocol/sdk/types.js';
+
+
+import {MongoClient} from 'mongodb';
+import dotenv from 'dotenv';
+
+
+dotenv.config();
+
+
+const uri=process.env.MONGODB_URI!;
+const dbname=process.env.MONGODB_DB!;
+const collectionName=process.env.MONGODB_COLLECTION!;
+const client=new MongoClient(uri);
+await client.connect();
+const db=client.db(dbname);
+const collection=db.collection(collectionName);
+
+
+
+
+
+
+const server= new Server({
+    name:'mongo-mcp-server',
+    version:'1.0.0',
+
+},{
+     capabilities:{
+        tools:{}
+     }
+});
+
+
+server.setRequestHandler(ListToolsRequestSchema,async()=>{
+    return{
+        tools:[
+            {name:"create_document",
+                description:"create a document in mongoDB collecion",
+                inputSchema:{
+                    type:'object',
+                    properties:{
+                        doc:{
+                            type:"object",
+                            description:"Document to insert"
+                        }
+                    },
+                    required:['doc']
+                }
+            }
+        ]
+    }
+})
+
+
+
+server.setRequestHandler(CallToolRequestSchema,async(request)=>{
+    const {name,arguments:args}=request.params;
+
+
+    if(name === 'create_document'){
+
+        if (!args || typeof args !== 'object' || !('doc' in args)) {
+            throw new McpError(ErrorCode.InvalidRequest, 'Missing or invalid arguments for create_document');
+        }
+
+        const { doc } = args as { doc: Record<string, any> };
+
+        try {
+            const result = await collection.insertOne(doc as Record<string, any>);
+            return {
+                toolResult: { insertedId: result.insertedId.toString() }
+            };
+        } catch (error) {
+            throw new McpError(ErrorCode.InternalError, 'mongo db insert failed');
+        }
+    }
+
+    throw new McpError(ErrorCode.InvalidRequest,'tool not found');
+})
+
+
+const transport= new StdioServerTransport();
+await server.connect(transport);
