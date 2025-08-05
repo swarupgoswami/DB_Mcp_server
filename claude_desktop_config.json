@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "mongo-mcp-server": {
+      "command": "node",
+      "args": [
+        "build/index.js"
+      ],
+      "cwd": "C:/Users/goswa/OneDrive/Desktop/DB_mcp",
+      "env": {
+        "MONGODB_URI": "mongodb://localhost:27017/mcpdb",
+        "MONGODB_DB": "mcpdb",
+        "MONGODB_COLLECTION": "documents"
+      }
+    }
+  }
+}
