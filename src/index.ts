@@ -79,10 +79,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             update: {
               type: "object",
-              description: "MongoDB update object (e.g., { $set: { field: value } })",
+              description:
+                "MongoDB update object (e.g., { $set: { field: value } })",
             },
           },
           required: ["filter", "update"],
+        },
+      },
+      {
+        name: "delete_document",
+        description: "Delete documents from MongoDB collection using a filter",
+        inputSchema: {
+          type: "object",
+          properties: {
+            filter: {
+              type: "object",
+              description: "MongoDB query filter to select documents to delete",
+            },
+          },
+          required: ["filter"],
         },
       },
     ],
@@ -108,67 +123,92 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         toolResult: { insertedId: result.insertedId.toString() },
       };
     } catch (error) {
-      throw new McpError(ErrorCode.InternalError, "mongo db insert failed")
+      throw new McpError(ErrorCode.InternalError, "mongo db insert failed");
     }
   }
 
-  
-
-
-  if(name ==='read_document'){
-    if(!args || typeof args !=='object'){
-        throw new McpError(
-          ErrorCode.InvalidRequest,'invalid arguments for read_document')
+  if (name === "read_document") {
+    if (!args || typeof args !== "object") {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "invalid arguments for read_document"
+      );
     }
 
-    const {filter}= args as { filter?: Record<string, any> };
+    const { filter } = args as { filter?: Record<string, any> };
 
-    try{
-       const docs=await collection.find(filter || {}).toArray();
+    try {
+      const docs = await collection.find(filter || {}).toArray();
 
       //  console.error("Read result:", docs);
 
-
-       return{
+      return {
         content: [
-        {
-          type: "text",
-          text: JSON.stringify(docs, null, 2)
-        }
-      ]
-       };
-    }catch(error){
-       throw new McpError(
-         ErrorCode.InternalError,'mongodb read failed');
+          {
+            type: "text",
+            text: JSON.stringify(docs, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      throw new McpError(ErrorCode.InternalError, "mongodb read failed");
     }
   }
 
-
-  if(name === "update_document"){
-    if(!args || typeof args != "object" || !("filter" in args) || !("update" in args)){
+  if (name === "update_document") {
+    if (
+      !args ||
+      typeof args != "object" ||
+      !("filter" in args) ||
+      !("update" in args)
+    ) {
       throw new McpError(
         ErrorCode.InvalidRequest,
         "Missing or invalid arguments for update_document"
       );
     }
 
+    const { filter, update } = args as {
+      filter: Record<string, any>;
+      update: Record<string, any>;
+    };
 
-    const {filter,update}= args as {filter:Record<string, any>, update: Record<string, any>};
+    try {
+      const result = await collection.updateMany(filter, update);
+
+      return {
+        toolResult: {
+          matchedCount: result.matchedCount,
+          modifiedCount: result.modifiedCount,
+        },
+      };
+    } catch (error) {
+      throw new McpError(ErrorCode.InternalError, "mongodb update failed");
+    }
+  }
+
+  if(name === "delete_document") {
+    if(!args || typeof args !== "object" || !("filter" in args)){
+      throw new McpError(ErrorCode.InvalidRequest, "Missing or invalid arguments for delete_document");
+    }
+
+
+    const {filter} = args as {filter : Record<string, any>};
+
 
     try{
 
-      const result =await collection.updateMany(filter,update);
+      const result = await collection.deleteMany(filter);
 
       return{
          toolResult: {
-          matchedCount: result.matchedCount,
-          modifiedCount: result.modifiedCount,
+        deletedCount: result.deletedCount,
         },
       };
 
     }catch(error){
 
-      throw new McpError(ErrorCode.InternalError,"mongodb update failed");
+      throw new McpError(ErrorCode.InternalError,"mongodb delte failed");
 
     }
   }
