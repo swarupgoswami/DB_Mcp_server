@@ -67,6 +67,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: [], // filter is optional
         },
       },
+      {
+        name: "update_document",
+        description: "Update documents in MongoDB collection using a filter",
+        inputSchema: {
+          type: "object",
+          properties: {
+            filter: {
+              type: "object",
+              description: "MongoDB query filter to select documents to update",
+            },
+            update: {
+              type: "object",
+              description: "MongoDB update object (e.g., { $set: { field: value } })",
+            },
+          },
+          required: ["filter", "update"],
+        },
+      },
     ],
   };
 });
@@ -122,6 +140,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }catch(error){
        throw new McpError(
          ErrorCode.InternalError,'mongodb read failed');
+    }
+  }
+
+
+  if(name === "update_document"){
+    if(!args || typeof args != "object" || !("filter" in args) || !("update" in args)){
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "Missing or invalid arguments for update_document"
+      );
+    }
+
+
+    const {filter,update}= args as {filter:Record<string, any>, update: Record<string, any>};
+
+    try{
+
+      const result =await collection.updateMany(filter,update);
+
+      return{
+         toolResult: {
+          matchedCount: result.matchedCount,
+          modifiedCount: result.modifiedCount,
+        },
+      };
+
+    }catch(error){
+
+      throw new McpError(ErrorCode.InternalError,"mongodb update failed");
+
     }
   }
 
