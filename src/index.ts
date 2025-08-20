@@ -90,7 +90,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         toolResult: { insertedId: result.insertedId.toString() },
       };
     } catch (error) {
-      throw new McpError(ErrorCode.InternalError, "mongo db insert failed");
+      throw new McpError(ErrorCode.InternalError, "mongo db insert failed")
     }
   }
 
@@ -108,17 +108,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try{
        const docs=await collection.find(filter || {}).toArray();
 
-       console.error("Read result:", docs);
+      //  console.error("Read result:", docs);
 
 
        return{
-        toolResult:{documents:docs}
+        content: [
+        {
+          type: "text",
+          text: JSON.stringify(docs, null, 2)
+        }
+      ]
        };
     }catch(error){
        throw new McpError(
          ErrorCode.InternalError,'mongodb read failed');
     }
-  };
+  }
 
 
   throw new McpError(ErrorCode.InvalidRequest, "tool not found");
