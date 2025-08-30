@@ -8,12 +8,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { MongoClient } from "mongodb";
+import { Client } from "pg";
 import dotenv from "dotenv";
 
 if (!process.env.MONGODB_URI) {
   dotenv.config();
 }
 
+// mongodb env's
 const uri = process.env.MONGODB_URI!;
 const dbname = process.env.MONGODB_DB!;
 const collectionName = process.env.MONGODB_COLLECTION!;
@@ -21,6 +23,25 @@ const client = new MongoClient(uri);
 await client.connect();
 const db = client.db(dbname);
 const collection = db.collection(collectionName);
+
+// postgres pg client
+
+const pgClient = new Client({
+  user: "postgres",
+  host: "localhost",
+  database: "mydb",
+  password: "swago123@",
+  port: 5432,
+});
+
+pgClient
+  .connect()
+  .then(() => {
+    console.log("connected to thye postgres databse");
+  })
+  .catch((err: unknown) => {
+    console.error("posgtres databse not connected", err);
+  });
 
 const server = new Server(
   {
@@ -98,6 +119,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ["filter"],
+        },
+      },
+      {
+        name: "create_table",
+        description: "Create a new table in PostgreSQL with a given schema",
+        inputSchema: {
+          type: "object", // root must be an object
+          properties: {
+            tableName: {
+              type: "string",
+              description: "The name of the table to create",
+            },
+            columns: {
+              type: "array", // columns is an array of strings
+              description:
+                "List of column definitions like 'id SERIAL PRIMARY KEY'",
+              items: {
+                type: "string",
+              },
+            },
+          },
+          required: ["tableName", "columns"], // both are required
+          additionalProperties: false, // prevent extra fields
         },
       },
     ],
@@ -187,32 +231,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   }
 
-  if(name === "delete_document") {
-    if(!args || typeof args !== "object" || !("filter" in args)){
-      throw new McpError(ErrorCode.InvalidRequest, "Missing or invalid arguments for delete_document");
+  if (name === "delete_document") {
+    if (!args || typeof args !== "object" || !("filter" in args)) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "Missing or invalid arguments for delete_document"
+      );
     }
 
+    const { filter } = args as { filter: Record<string, any> };
 
-    const {filter} = args as {filter : Record<string, any>};
-
-
-    try{
-
+    try {
       const result = await collection.deleteMany(filter);
 
-      return{
-         toolResult: {
-        deletedCount: result.deletedCount,
+      return {
+        toolResult: {
+          deletedCount: result.deletedCount,
         },
       };
-
-    }catch(error){
-
-      throw new McpError(ErrorCode.InternalError,"mongodb delte failed");
-
+    } catch (error) {
+      throw new McpError(ErrorCode.InternalError, "mongodb delte failed");
     }
   }
 
+  if (name === "create_table") {
+    // cast args as any object, same as other tools
+    const { tableName, columns } = args as {
+      tableName: string;
+      columns: string[];
+    };
+
+    if (!tableName || !tableName.trim()) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "Table name cannot be empty or whitespace"
+      );
+    }
+
+    if (!Array.isArray(columns) || columns.length === 0) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "Columns must be a non-empty array of strings"
+      );
+    }
+
+    const safeTableName = `"${tableName.trim().replace(/"/g, '""')}"`;
+
+    try {
+      const query = `CREATE TABLE ${safeTableName} (${columns.join(", ")});`;
+      await pgClient.query(query);
+
+      return {
+        toolResult: {
+          success: true,
+          message: `Table '${tableName}' created successfully`,
+        },
+      };
+    } catch (err: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Postgres table creation failed: ${err.message}`
+      );
+    }
+  }
 
   throw new McpError(ErrorCode.InvalidRequest, "tool not found");
 });
