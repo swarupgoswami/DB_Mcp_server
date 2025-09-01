@@ -37,7 +37,7 @@ const pgClient = new Client({
 pgClient
   .connect()
   .then(() => {
-    console.log("connected to thye postgres databse");
+    console.error("connected to thye postgres databse");
   })
   .catch((err: unknown) => {
     console.error("posgtres databse not connected", err);
@@ -142,6 +142,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["tableName", "columns"], // both are required
           additionalProperties: false, // prevent extra fields
+        },
+      },
+      {
+        name: "insert_row",
+        description: "insert  a row into a postgreSQL table",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tableName: {
+              type: "string",
+              description: "name of the table the row will be inserted",
+            },
+            columns: {
+              type: "array",
+              description: "list of column name",
+              items: { type: "string" },
+            },
+            values: {
+              type: "array",
+              description: "list of values matching the coloumn",
+              items: {},
+            },
+          },
+          required: ["tableName", "columns", "values"],
         },
       },
     ],
@@ -291,6 +315,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       throw new McpError(
         ErrorCode.InternalError,
         `Postgres table creation failed: ${err.message}`
+      );
+    }
+  }
+  if (name === "insert_row") {
+    if (
+      !args ||
+      typeof args !== "object" ||
+      !("tableName" in args) ||
+      !("columns" in args) ||
+      !("values" in args)
+    ) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "missing or inavalid arguments for insert_row"
+      );
+    }
+    const { tableName, columns, values } = args as {
+      tableName: string;
+      columns: string[];
+      values: any[];
+    };
+
+    try {
+      const safeTableName = `"${tableName.trim().replace(/"/g, '""')}"`;
+      const query = `INSERT INTO ${safeTableName} (${columns.join(
+        ", "
+      )}) VALUES (${columns
+        .map((_, i) => `$${i + 1}`)
+        .join(", ")}) RETURNING *;`;
+      const result = await pgClient.query(query, values);
+
+      return {
+        toolResult: {
+          success: true,
+          insertedRow: result.rows[0],
+        },
+      };
+    } catch (err: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Postgres row insertion failed: ${err.message}`
       );
     }
   }
