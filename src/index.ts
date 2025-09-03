@@ -186,6 +186,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["tableName"],
         },
       },
+      {
+        name: "update_row",
+        description: "Update rows in a PostgreSQL table using a filter",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tableName: { type: "string", description: "Name of the table" },
+            updates: {
+              type: "object",
+              description:
+                "Columns and their new values, e.g. { name: 'John' }",
+            },
+            filter: {
+              type: "object",
+              description:
+                "Filter for selecting rows to update, e.g. { id: 1 }",
+            },
+          },
+          required: ["tableName", "updates", "filter"],
+        },
+      },
     ],
   };
 });
@@ -377,43 +398,93 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       );
     }
   }
-  if(name === "read_rows"){
-    if(!args || typeof args !== "object" || !("tableName" in args)){
-      throw new McpError(ErrorCode.InvalidRequest,"missing or invalid arguments for read_rows");
+  if (name === "read_rows") {
+    if (!args || typeof args !== "object" || !("tableName" in args)) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "missing or invalid arguments for read_rows"
+      );
     }
 
-    const {tableName, filter} = args as {
+    const { tableName, filter } = args as {
       tableName: string;
-      filter?: Record<string,any>;
+      filter?: Record<string, any>;
+    };
+
+    try {
+      const safeTableName = `"${tableName.trim().replace(/"/g, '""')}"`;
+      let query = `SELECT * FROM ${safeTableName}`;
+      let values: any[] = [];
+
+      if (
+        filter &&
+        typeof filter === "object" &&
+        Object.keys(filter).length > 0
+      ) {
+        const conditions = Object.keys(filter)
+          .map((key, i) => `"${key}" = $${i + 1}`)
+          .join(" AND ");
+
+        query += ` WHERE ${conditions}`;
+        values = Object.values(filter);
+      }
+
+      const result = await pgClient.query(query, values);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result.rows, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Postgres read rows failed: ${err.message}`
+      );
+    }
+  }
+  if(name === "update_row"){
+    if(!args || typeof args !== "object"|| !("tableName" in args) || !("updates" in args) || !("filter" in args)){
+      throw new McpError(ErrorCode.InvalidRequest,"missing or invalid arguments for update_row");
     };
 
 
+    const {tableName, updates, filter} = args as {
+      tableName :string,
+      updates: Record<string, any>,
+      filter: Record<string, any>
+    };
+
     try{
-
       const safeTableName = `"${tableName.trim().replace(/"/g, '""')}"`;
-      let query = `SELECT * FROM ${safeTableName}`;
-      let values: any[] =[];
 
-      if(filter && typeof filter === 'object' && Object.keys(filter).length >0){
-          const conditions = Object.keys(filter).map((key, i) => `"${key}" = $${i+1}`).join(" AND ");
+      const updateKeys = Object.keys(updates);
+      const updateValues = Object.values(updates);
 
-          query+=` WHERE ${conditions}`;
-          values=Object.values(filter);
-      }
+      const filterKeys = Object.keys(filter);
+      const filterValues = Object.values(filter);
 
-      const result = await pgClient.query(query,values);
+
+      const setClause =updateKeys.map((key,i)=> `"${key}" = $${i+1}`).join(", ");
+      const whereClause = filterKeys.map((key,i) => `"${key}" = $${updateKeys.length +i+1}`).join(" AND ");
+
+      const query =`UPDATE ${safeTableName} SET ${setClause} WHERE ${whereClause} RETURNING *;`;
+
+      const result =await pgClient.query(query,[...updateValues,...filterValues]);
 
       return {
-        content:[
-          {
-            type:"text",
-            text: JSON.stringify(result.rows,null,2),
-          },
-        ]
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(result.rows, null, 2),
+        },
+      ],
       };
-
-    }catch(err :any){
-      throw new McpError(ErrorCode.InternalError,`Postgres read rows failed: ${err.message}`);
+    }catch(err:any){
+      throw new McpError(ErrorCode.InternalError,`Postgres update row failed: ${err.message}`);
     }
   }
 
