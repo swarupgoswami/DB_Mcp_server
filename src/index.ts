@@ -168,6 +168,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["tableName", "columns", "values"],
         },
       },
+      {
+        name: "read_rows",
+        description: "Read rows from a PostgreSQL table with optional filters",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tableName: {
+              type: "string",
+              description: "Name of the table to read from",
+            },
+            filter: {
+              type: "object",
+              description: "Optional key-value filter, e.g. { id: 1 }",
+            },
+          },
+          required: ["tableName"],
+        },
+      },
     ],
   };
 });
@@ -357,6 +375,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ErrorCode.InternalError,
         `Postgres row insertion failed: ${err.message}`
       );
+    }
+  }
+  if(name === "read_rows"){
+    if(!args || typeof args !== "object" || !("tableName" in args)){
+      throw new McpError(ErrorCode.InvalidRequest,"missing or invalid arguments for read_rows");
+    }
+
+    const {tableName, filter} = args as {
+      tableName: string;
+      filter?: Record<string,any>;
+    };
+
+
+    try{
+
+      const safeTableName = `"${tableName.trim().replace(/"/g, '""')}"`;
+      let query = `SELECT * FROM ${safeTableName}`;
+      let values: any[] =[];
+
+      if(filter && typeof filter === 'object' && Object.keys(filter).length >0){
+          const conditions = Object.keys(filter).map((key, i) => `"${key}" = $${i+1}`).join(" AND ");
+
+          query+=` WHERE ${conditions}`;
+          values=Object.values(filter);
+      }
+
+      const result = await pgClient.query(query,values);
+
+      return {
+        content:[
+          {
+            type:"text",
+            text: JSON.stringify(result.rows,null,2),
+          },
+        ]
+      };
+
+    }catch(err :any){
+      throw new McpError(ErrorCode.InternalError,`Postgres read rows failed: ${err.message}`);
     }
   }
 
