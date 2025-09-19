@@ -10,6 +10,7 @@ import {
 import { MongoClient } from "mongodb";
 import { Client } from "pg";
 import dotenv from "dotenv";
+import {connectSqlite} from './sqliteClient.js';
 
 if (!process.env.MONGODB_URI) {
   dotenv.config();
@@ -207,6 +208,43 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["tableName", "updates", "filter"],
         },
       },
+      {
+        name: "delete_row",
+        description: "Delete rows from a PostgreSQL table using a filter",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tableName: { type: "string", description: "Name of the table" },
+            filter: {
+              type: "object",
+              description: "Filter to select rows to delete, e.g. { id: 1 }",
+            },
+          },
+          required: ["tableName", "filter"],
+        },
+      },
+      {
+        name: "create_table_sqlite",
+        description: "create a new table in SQLite database with given schema",
+        inputSchema:{
+          type: "object",
+          properties:{
+            tableName:{
+              type:"string",
+              description:"the name of the table to create"
+            },
+            columns:{
+              type:"array",
+              description:"list of coloumn definition like 'id INTEGER PRIMARY KEY'",
+              items:{
+                type:"string"
+              }
+            },
+          },
+          required:["tableName","columns"],
+            additionalProperties:false,
+        },
+      }
     ],
   };
 });
@@ -446,19 +484,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       );
     }
   }
-  if(name === "update_row"){
-    if(!args || typeof args !== "object"|| !("tableName" in args) || !("updates" in args) || !("filter" in args)){
-      throw new McpError(ErrorCode.InvalidRequest,"missing or invalid arguments for update_row");
+  if (name === "update_row") {
+    if (
+      !args ||
+      typeof args !== "object" ||
+      !("tableName" in args) ||
+      !("updates" in args) ||
+      !("filter" in args)
+    ) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "missing or invalid arguments for update_row"
+      );
+    }
+
+    const { tableName, updates, filter } = args as {
+      tableName: string;
+      updates: Record<string, any>;
+      filter: Record<string, any>;
     };
 
-
-    const {tableName, updates, filter} = args as {
-      tableName :string,
-      updates: Record<string, any>,
-      filter: Record<string, any>
-    };
-
-    try{
+    try {
       const safeTableName = `"${tableName.trim().replace(/"/g, '""')}"`;
 
       const updateKeys = Object.keys(updates);
@@ -467,24 +513,118 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const filterKeys = Object.keys(filter);
       const filterValues = Object.values(filter);
 
+      const setClause = updateKeys
+        .map((key, i) => `"${key}" = $${i + 1}`)
+        .join(", ");
+      const whereClause = filterKeys
+        .map((key, i) => `"${key}" = $${updateKeys.length + i + 1}`)
+        .join(" AND ");
 
-      const setClause =updateKeys.map((key,i)=> `"${key}" = $${i+1}`).join(", ");
-      const whereClause = filterKeys.map((key,i) => `"${key}" = $${updateKeys.length +i+1}`).join(" AND ");
+      const query = `UPDATE ${safeTableName} SET ${setClause} WHERE ${whereClause} RETURNING *;`;
 
-      const query =`UPDATE ${safeTableName} SET ${setClause} WHERE ${whereClause} RETURNING *;`;
-
-      const result =await pgClient.query(query,[...updateValues,...filterValues]);
+      const result = await pgClient.query(query, [
+        ...updateValues,
+        ...filterValues,
+      ]);
 
       return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(result.rows, null, 2),
-        },
-      ],
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result.rows, null, 2),
+          },
+        ],
       };
+    } catch (err: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Postgres update row failed: ${err.message}`
+      );
+    }
+  }
+  if (name === "delete_row") {
+    if (
+      !args ||
+      typeof args !== "object" ||
+      !("tableName" in args) ||
+      !("filter" in args)
+    ) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "missing or invalid arguments for delete_row"
+      );
+    }
+
+    const { tableName, filter } = args as {
+      tableName: string;
+      filter: Record<string, any>;
+    };
+
+    try {
+      const safeTableName = `"${tableName.trim().replace(/"/g, '""')}"`;
+
+      const filterKeys = Object.keys(filter);
+      const filterValues = Object.values(filter);
+
+      if (filterKeys.length === 0) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          "Filter cannot be empty for delete_row"
+        );
+      }
+
+      const whereClause = filterKeys
+        .map((key, i) => `"${key}" = $${i + 1}`)
+        .join(" AND ");
+      const query = `DELETE FROM ${safeTableName} WHERE ${whereClause} RETURNING *;`;
+
+      const result = await pgClient.query(query, filterValues);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result.rows, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Postgres delete row failed: ${err.message}`
+      );
+    }
+  }
+  if(name ==="create_table_sqlite"){
+    const {tableName , columns}= args as {
+      tableName:string;
+      columns:string[];
+    };
+
+    if(!tableName|| !columns?.length){
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "missing tablename or columns for create_table_SQLite"
+      );
+    }
+
+    try{
+      const db=connectSqlite();
+      const safeTableName = `"${tableName.replace(/"/g, '""')}"`;
+
+      const sql = `CREATE TABLE ${safeTableName} (${columns.join(", ")});`;
+
+      db.prepare(sql).run();
+
+      return {
+        toolResult:{
+          success:true,
+          message:`SQLite table ${tableName} created successfully `
+        }
+      };
+
     }catch(err:any){
-      throw new McpError(ErrorCode.InternalError,`Postgres update row failed: ${err.message}`);
+      throw new McpError(ErrorCode.InternalError,`sqlite table creation failed: ${err.message}`);
     }
   }
 
