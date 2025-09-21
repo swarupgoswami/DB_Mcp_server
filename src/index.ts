@@ -244,6 +244,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required:["tableName","columns"],
             additionalProperties:false,
         },
+      },
+      {
+        name:"insert_row_sqlite",
+        description:"insert a row into a SQLite table",
+        inputSchema:{
+          type:"object",
+          properties:{
+            tableName:{
+              type:"string",
+              description:"The name of the SQLite table",
+            },
+            row:{
+              type:"object",
+              description:"key-value pairs representing the row data",
+            },
+          },
+          required:["tableName","row"],
+        }
       }
     ],
   };
@@ -625,6 +643,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     }catch(err:any){
       throw new McpError(ErrorCode.InternalError,`sqlite table creation failed: ${err.message}`);
+    }
+  }
+  if(name==="insert_row_sqlite"){
+    const {tableName, row}= args as {
+      tableName:string;
+      row:Record<string,any>;
+    };
+
+    if(!tableName || !row || Object.keys(row).length===0){
+      throw new McpError(ErrorCode.InvalidRequest,"missing tableName or row data for insert_row_sqlite");
+    }
+
+    try{
+      const db=connectSqlite();
+      const columns=Object.keys(row);
+      const placeholders=columns.map(()=>"?").join(", ");
+      const sql=`INSERT INTO "${tableName.replace(/"/g,'""')}"(${columns.join(", ")}) VALUES (${placeholders});`;
+
+      const stmt=db.prepare(sql);
+      const result=stmt.run(...Object.values(row));
+
+      return{
+        toolResult:{
+          success:true,
+          message:`row inserted into ${tableName}`,
+          changes:result.changes,
+          lastInsertRowid:result.lastInsertRowid,
+        }
+      };
+    }catch(err:any){
+      throw new McpError(ErrorCode.InternalError,`sqlite row insertion failed: ${err.message}`);
     }
   }
 
