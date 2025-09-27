@@ -10,7 +10,7 @@ import {
 import { MongoClient } from "mongodb";
 import { Client } from "pg";
 import dotenv from "dotenv";
-import {connectSqlite} from './sqliteClient.js';
+import { connectSqlite } from "./sqliteClient.js";
 
 if (!process.env.MONGODB_URI) {
   dotenv.config();
@@ -226,43 +226,67 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "create_table_sqlite",
         description: "create a new table in SQLite database with given schema",
-        inputSchema:{
+        inputSchema: {
           type: "object",
-          properties:{
-            tableName:{
-              type:"string",
-              description:"the name of the table to create"
+          properties: {
+            tableName: {
+              type: "string",
+              description: "the name of the table to create",
             },
-            columns:{
-              type:"array",
-              description:"list of coloumn definition like 'id INTEGER PRIMARY KEY'",
-              items:{
-                type:"string"
-              }
+            columns: {
+              type: "array",
+              description:
+                "list of coloumn definition like 'id INTEGER PRIMARY KEY'",
+              items: {
+                type: "string",
+              },
             },
           },
-          required:["tableName","columns"],
-            additionalProperties:false,
+          required: ["tableName", "columns"],
+          additionalProperties: false,
         },
       },
       {
-        name:"insert_row_sqlite",
-        description:"insert a row into a SQLite table",
-        inputSchema:{
-          type:"object",
-          properties:{
-            tableName:{
-              type:"string",
-              description:"The name of the SQLite table",
+        name: "insert_row_sqlite",
+        description: "insert a row into a SQLite table",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tableName: {
+              type: "string",
+              description: "The name of the SQLite table",
             },
-            row:{
-              type:"object",
-              description:"key-value pairs representing the row data",
+            row: {
+              type: "object",
+              description: "key-value pairs representing the row data",
             },
           },
-          required:["tableName","row"],
-        }
-      }
+          required: ["tableName", "row"],
+        },
+      },
+      {
+        name: "update_row_sqlite",
+        description: "Update rows in a SQLite table using a filter",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tableName: {
+              type: "string",
+              description: "Name of the SQLite table",
+            },
+            updates: {
+              type: "object",
+              description:
+                "Columns and their new values, e.g. { name: 'John' }",
+            },
+            filter: {
+              type: "object",
+              description: "Filter to select rows, e.g. { id: 1 }",
+            },
+          },
+          required: ["tableName", "updates", "filter"],
+        },
+      },
     ],
   };
 });
@@ -613,21 +637,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       );
     }
   }
-  if(name ==="create_table_sqlite"){
-    const {tableName , columns}= args as {
-      tableName:string;
-      columns:string[];
+  if (name === "create_table_sqlite") {
+    const { tableName, columns } = args as {
+      tableName: string;
+      columns: string[];
     };
 
-    if(!tableName|| !columns?.length){
+    if (!tableName || !columns?.length) {
       throw new McpError(
         ErrorCode.InvalidRequest,
         "missing tablename or columns for create_table_SQLite"
       );
     }
 
-    try{
-      const db=connectSqlite();
+    try {
+      const db = connectSqlite();
       const safeTableName = `"${tableName.replace(/"/g, '""')}"`;
 
       const sql = `CREATE TABLE ${safeTableName} (${columns.join(", ")});`;
@@ -635,45 +659,103 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       db.prepare(sql).run();
 
       return {
-        toolResult:{
-          success:true,
-          message:`SQLite table ${tableName} created successfully `
-        }
+        toolResult: {
+          success: true,
+          message: `SQLite table ${tableName} created successfully `,
+        },
       };
-
-    }catch(err:any){
-      throw new McpError(ErrorCode.InternalError,`sqlite table creation failed: ${err.message}`);
+    } catch (err: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `sqlite table creation failed: ${err.message}`
+      );
     }
   }
-  if(name==="insert_row_sqlite"){
-    const {tableName, row}= args as {
-      tableName:string;
-      row:Record<string,any>;
+  if (name === "insert_row_sqlite") {
+    const { tableName, row } = args as {
+      tableName: string;
+      row: Record<string, any>;
     };
 
-    if(!tableName || !row || Object.keys(row).length===0){
-      throw new McpError(ErrorCode.InvalidRequest,"missing tableName or row data for insert_row_sqlite");
+    if (!tableName || !row || Object.keys(row).length === 0) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "missing tableName or row data for insert_row_sqlite"
+      );
     }
 
-    try{
-      const db=connectSqlite();
-      const columns=Object.keys(row);
-      const placeholders=columns.map(()=>"?").join(", ");
-      const sql=`INSERT INTO "${tableName.replace(/"/g,'""')}"(${columns.join(", ")}) VALUES (${placeholders});`;
+    try {
+      const db = connectSqlite();
+      const columns = Object.keys(row);
+      const placeholders = columns.map(() => "?").join(", ");
+      const sql = `INSERT INTO "${tableName.replace(
+        /"/g,
+        '""'
+      )}"(${columns.join(", ")}) VALUES (${placeholders});`;
 
-      const stmt=db.prepare(sql);
-      const result=stmt.run(...Object.values(row));
+      const stmt = db.prepare(sql);
+      const result = stmt.run(...Object.values(row));
 
-      return{
-        toolResult:{
-          success:true,
-          message:`row inserted into ${tableName}`,
-          changes:result.changes,
-          lastInsertRowid:result.lastInsertRowid,
-        }
+      return {
+        toolResult: {
+          success: true,
+          message: `row inserted into ${tableName}`,
+          changes: result.changes,
+          lastInsertRowid: result.lastInsertRowid,
+        },
       };
-    }catch(err:any){
-      throw new McpError(ErrorCode.InternalError,`sqlite row insertion failed: ${err.message}`);
+    } catch (err: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `sqlite row insertion failed: ${err.message}`
+      );
+    }
+  }
+  if (name === "update_row_sqlite") {
+    const { tableName, updates, filter } = args as {
+      tableName: string;
+      updates: Record<string, any>;
+      filter: Record<string, any>;
+    };
+
+    if (!tableName || !updates || !filter) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        "missing tableName, updates or filter for update_row_sqlite"
+      );
+    }
+
+    try {
+      const db = connectSqlite();
+
+      const updateKeys = Object.keys(updates);
+      const updateValues = Object.values(updates);
+
+      const filterKeys = Object.keys(filter);
+      const filterValues = Object.values(filter);
+
+      const setClause = updateKeys.map((key) => `"${key}" = ?`).join(", ");
+      const whereClause = filterKeys.map((key) => `"${key}" = ?`).join(" AND ");
+
+      const sql = `UPDATE "${tableName.replace(
+        /"/g,
+        '""'
+      )}" SET ${setClause} WHERE ${whereClause};`;
+      const stmt = db.prepare(sql);
+      const result = stmt.run(...updateValues, ...filterValues);
+
+      return {
+        toolResult: {
+          success: true,
+          message: `rows updated in ${tableName}`,
+          changes: result.changes,
+        },
+      };
+    } catch (err: any) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `sqlite update row failed: ${err.message}`
+      );
     }
   }
 
